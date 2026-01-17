@@ -1,11 +1,11 @@
 ---
 name: coolify-manager
-description: Manage self-hosted infrastructure via Coolify. Use this to deploy apps, debug build failures, manage databases, and execute commands inside remote Docker containers.
+description: Manage self-hosted infrastructure via Coolify. Use this to deploy apps, debug build failures, manage databases, and interact with the Coolify API.
 ---
 
 # Coolify Infrastructure Manager
 
-This skill allows you to manage a self-hosted Coolify instance. It handles deployment lifecycles, resource configuration, and advanced debugging via SSH.
+This skill allows you to manage a self-hosted Coolify instance. It handles deployment lifecycles, resource configuration, and advanced debugging.
 
 ## 🧠 Decision Tree
 
@@ -14,10 +14,11 @@ Determine which of the following categories the request falls into and follow th
 
 ### A. "Fix it" / "Debug it" (Operations)
 *User asks: "Why did the build fail?", "Show me logs", "Restart the service"*
-1. **Check Broad Health:** - Run `coolify resources list` to see if dependencies (DBs, Redis) are healthy.
-   - If multiple resources are `unhealthy` or `exited`, check the host server disk space immediately (`ssh ... "df -h"`).
+1. **Check Broad Health:** Run `coolify resources list` to see if dependencies (DBs, Redis) are healthy.
+   - If multiple resources are `unhealthy` or `exited`, check the host server disk space.
 2. **Check Status:** Run `coolify app get <uuid>` to see if it's running or exited.
-3. **Get Logs:** - If build failed: `coolify app deployments logs <app_uuid>`.
+3. **Get Logs:** 
+   - If build failed: `coolify app deployments logs <app_uuid>`.
    - If runtime error: `coolify app logs <uuid>`.
 4. **Action:** If stuck, `coolify app restart <uuid>`.
 
@@ -26,12 +27,12 @@ Determine which of the following categories the request falls into and follow th
 1. **Consult Reference:** Read `resources/common-workflows.md` for specific command patterns.
 2. **Environment Vars:** Remember that `coolify app env sync` is safer than adding one by one if the user provides a list.
 
-### C. "Run command inside container" (Advanced Exec)
-*User asks: "Run rails console", "Check /tmp in the container", "Run database migration manually"*
-1. **Context:** Coolify CLI does not natively support `exec`.
-2. **Solution:** You MUST use the `scripts/container-exec.sh` helper script provided in this skill.
-3. **Method:** - First, find the `app_uuid`.
-   - Run: `./scripts/container-exec.sh <app_uuid> "<command>"`
+### C. "Delete it" (Destructive Operations)
+*User asks: "Delete the project", "Remove this database"*
+1. **Check CLI Support:** Some delete operations (like `coolify project delete`) are not supported by the CLI.
+2. **Use Raw API:** Consult `resources/api-reference.md` for the curl command.
+3. **Get Credentials:** Run `coolify context get <context_name> --show-sensitive` to get the base URL and token.
+4. **Execute:** Make the API call with curl.
 
 ## ⚡ Best Practices
 
@@ -43,24 +44,32 @@ Determine which of the following categories the request falls into and follow th
    - If you don't know the UUID, search by listing resources: `coolify resources list`.
    - Always prefer UUIDs over names for critical operations to avoid ambiguity.
 
-3. **Handling "Impossible" Actions:**
-   - If the CLI lacks a feature (like direct file upload or shell access), refer to the **SSH Tunneling** protocol in `resources/common-workflows.md` or use the script in `scripts/`.
+3. **Handling CLI Gaps (Raw API):**
+   - If the CLI lacks a feature, consult `resources/api-reference.md` for the raw API endpoint.
+   - Get context credentials with: `coolify context get <name> --show-sensitive`
+   - Use curl to call the API directly.
 
-4. **Handle Permissions & Scripts:**
-   - If a required script (like `container-exec.sh`) exists but fails with `Permission denied` (code 126), automatically run `chmod +x <path>` and retry.
-   - If you are unable, ask the user to do it.
-5. **SSH & Host Discovery:**
-   - If the CLI lacks a feature or app-level logs are insufficient, use SSH to the host server found in `coolify context list` or `coolify server list`.
+## 📚 Resources
+
+| File | Purpose |
+|------|---------|
+| `resources/cli-reference.md` | Complete CLI command reference |
+| `resources/api-reference.md` | Raw API endpoints for operations the CLI doesn't support |
+| `resources/common-workflows.md` | Recipes for common tasks (env sync, domain changes, etc.) |
+| `guides/container_ssh.md` | How to SSH into containers manually |
 
 ## ⚠️ Known CLI Limitations
 
-The Coolify CLI (as of v1.4.0) does not support every API operation. When you encounter a missing command:
+The Coolify CLI (as of v1.4.0) does not support every API operation:
 
-1. **Do NOT silently fall back to raw API calls (`curl`, etc.).**
-2. **Inform the user** that the CLI lacks support for this specific action.
-3. **Ask for permission** before attempting an alternative (e.g., direct API call, or manual action via the Coolify web UI).
+| Operation | CLI Support | Alternative |
+|-----------|-------------|-------------|
+| Delete project | ❌ No | Use raw API: `DELETE /api/v1/projects/{uuid}` |
+| Execute command in container | ❌ No | SSH to host + `docker exec` |
+| Force delete database | ❌ No | Use raw API or Web UI |
 
-Examples of currently unsupported CLI operations:
-- `coolify project delete` (projects can only be deleted via the web UI or API)
-- Non-interactive deletion of databases (no `--force` flag)
+When using the raw API, always get credentials from the context:
+```bash
+coolify context get <context_name> --show-sensitive
+```
   
